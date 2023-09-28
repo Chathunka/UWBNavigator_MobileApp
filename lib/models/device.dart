@@ -7,11 +7,7 @@ class Devices{
 class Device{
   int? id = 0;
   String? name = "";
-  String? status = "";
-  String? type = "";
-  double? x = 0.0;
-  double? y = 0.0;
-  double? z = 0.0;
+  String? anchors = "";
 
-  Device({this.id,this.name,this.status,this.type,this.x,this.y,this.z});
+  Device({this.id,this.name,this.anchors,});
 }

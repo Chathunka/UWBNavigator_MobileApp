@@ -8,10 +8,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:uwb_navigator/utils/ble.dart';
+import 'package:uwb_navigator/utils/network_status_requester.dart';
 import 'package:wifi_scan/wifi_scan.dart';
 import 'package:uwb_navigator/db/db_provider_local.dart';
 import 'package:uwb_navigator/models/device.dart';
 import 'package:uwb_navigator/shared/variables.dart';
+import 'package:flutter_spinkit/flutter_spinkit.dart';
 
 MobileScannerController cameraController = MobileScannerController();
 
@@ -34,23 +36,24 @@ class RegisterNewDevice {
 
   String DEV_NAME = "";
   bool _DEV_ADD_MODE = false; // 0 => reconnect
-  bool _GO_3D = false; // 1 => direct to 3D view
 
   bool _CON_MODE = false; // 0 => WIFI
   String _DEVSSID = "UWB_Navigator";
   String _DEVPWD = "12345678";
   String _UUID = "";
+  String _DEVID = "";
 
-  void Function(String) onData;
+  bool NOTCONNECTED = true;
+
+  void Function(String,String) onData;
   final BuildContext _context;
 
   late ScanResult deviceResult;
+  bool BLEresultSet = false;
 
   RegisterNewDevice(this._context,this.onData){
-    bleInstance = BLE(_onBLEData);
     _startWifiScan();
   }
-
 
   Future<void> dialogBuilder(bool mode) {
     _DEV_ADD_MODE = mode;
@@ -89,9 +92,17 @@ class RegisterNewDevice {
                         Container(padding: const EdgeInsets.all(10), decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.all(Radius.circular(5.0))), width: double.infinity,
                           child: TextFormField(onChanged: (s) {if (s.isNotEmpty) QRdata = s;}, decoration: const InputDecoration(hintText: "Device Serial"),),
                         ),
-                        ElevatedButton(onPressed:(){
-                          if(decodeSerial(QRdata)){setState(() { DEV_NAME = _DEVSSID; showQR = false;});}else{}
-                          }, child: const Text("Click to Add device")),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            ElevatedButton(onPressed:(){
+                              Navigator.pushReplacementNamed(context,"/home");
+                            }, child: const Text("Cancel")),
+                            ElevatedButton(onPressed:(){
+                              if(decodeSerial(QRdata)){setState(() { DEV_NAME = _DEVSSID; showQR = false;});}else{}
+                              }, child: const Text("  OK  ")),
+                          ],
+                        ),
                       ],
                     )
                     : Container(
@@ -162,7 +173,7 @@ class RegisterNewDevice {
                 ],
               ),
               actions: <Widget>[
-                showQR ? Container() : TextButton(style: TextButton.styleFrom(textStyle: Theme.of(context).textTheme.labelLarge,), child: const Text('Cancel'), onPressed: () {Navigator.of(context).pop();},),
+                showQR ? Container() : TextButton(style: TextButton.styleFrom(textStyle: Theme.of(context).textTheme.labelLarge,), child: const Text('Cancel'), onPressed: () {Navigator.pushReplacementNamed(context,"/home");},),
                 showQR ? Container() : TextButton(style: TextButton.styleFrom(textStyle: Theme.of(context).textTheme.labelLarge,), child: const Text('Add'), onPressed: () {connectDevice();},),
               ],
             ),
@@ -172,9 +183,8 @@ class RegisterNewDevice {
     );
   }
 
-  Future<void> reconnectDialogBuilder(bool mode, bool go3d) {
-    _DEV_ADD_MODE = mode;
-    _GO_3D = go3d;
+  Future<void> reconnectDialogBuilder(bool mode,String id) {
+    _DEV_ADD_MODE = mode;_DEVID = id;
     return showDialog<void>(
       useSafeArea: true,
       context: _context,
@@ -199,7 +209,7 @@ class RegisterNewDevice {
                               onDetect: (capture) {
                                 final List<Barcode> barcodes = capture.barcodes;final Uint8List? image = capture.image;
                                 for (final barcode in barcodes) {QRdata = barcode.rawValue.toString();}
-                                if(decodeSerial(QRdata)){showQR = false;connectDevice();}else{}
+                                if(decodeSerial(QRdata)){setState((){showQR = false;connectDevice();});}else{}
                               },
                             ),
                           ),
@@ -211,18 +221,25 @@ class RegisterNewDevice {
                           child: TextFormField(onChanged: (s) {if (s.isNotEmpty) QRdata = s;}, decoration: const InputDecoration(hintText: "Device Serial"),),
                         ),
                         Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                           children: [
                             ElevatedButton(onPressed:(){
-                              _CON_MODE = Constants.BLE_MODE; showQR = false; connectDevice();
+                              setState((){_CON_MODE = Constants.BLE_MODE;showQR = false;connectDevice();});
                             }, child: const Text("BLE MODE")),
                             ElevatedButton(onPressed:(){
-                              _CON_MODE = Constants.WIFI_MODE; showQR = false; connectDevice();
+                              setState((){_CON_MODE = Constants.WIFI_MODE;showQR = false;connectDevice();});
                             }, child: const Text("Wi-Fi MODE")),
                           ],
                         )
                       ],
                     )
-                        : Container(),
+                        : Container( width: double.infinity, height: 400, child: Center(child: Column( mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text("Please wait till connect..."),
+                            SizedBox(height: 20,),
+                            SpinKitCircle(color: AppColor.primaryColor, size: 75.0,),
+                          ],
+                        ),),),
                   ),
                 ],
               ),
@@ -235,10 +252,8 @@ class RegisterNewDevice {
 
   Future<void> connectDevice()async {
     if(_CON_MODE){
-      print("Connect in BLE mode 0000000000000000000000000000000000");
-      connectBLE(_DEVSSID,_DEVPWD);
+      searchBLE(_DEVSSID,_DEVPWD);
     }else{
-      print("Connect in WIFI mode 0000000000000000000000000000000000");
       connectAP(_DEVSSID,_DEVPWD);
     }
   }
@@ -246,34 +261,81 @@ class RegisterNewDevice {
   //WIFI methods
   Future<void> connectAP(String ssid, String password) async {
     try {
-      final Map<String, dynamic> arguments = {'arg1': Constants.DEFAULT_DEV_NAME, 'arg2': Constants.DEFAULT_DEV_PASS};
-      await platform.invokeMethod('connectDevice', arguments);
-      _streamSubscription = stream.receiveBroadcastStream().listen(_listenStream);
-    } on PlatformException catch (e) {}
+      bool AlreadyConnected = await _checkWifi();
+      if(AlreadyConnected){
+        NOTCONNECTED = false;
+        if(_DEV_ADD_MODE) {int id = await deviceDescriptor("");onData("WIFI_DEVICE_ADDED",id.toString());NOTCONNECTED == false;} else {onData("WIFI_DEVICE_RECONNECTED_GO3D",_DEVID);}
+        Navigator.pop(_context);
+      }else{
+        final Map<String, dynamic> arguments = {'arg1': Constants.DEFAULT_DEV_NAME, 'arg2': Constants.DEFAULT_DEV_PASS};
+        await platform.invokeMethod('connectDevice', arguments);
+        _streamSubscription = stream.receiveBroadcastStream().listen(_listenStream);
+      }
+    } on PlatformException catch (e) { print(e);}
+    Future.delayed(Duration(seconds: 15)).then((value) {
+      if(NOTCONNECTED) {
+        print("UWB Navigator - WIFI connection Timeout executed...");
+        Navigator.pop(_context);
+        permissionAlertBuilder(_context, "");
+      }else{
+        print("UWB Navigator - WIFI connection Timeout not executed...");
+      }
+    });
+  }
+
+  Future<bool> _checkWifi() async{
+    var network_info = await NetworkInformation().getNetworkInfo();
+    if(network_info["Wifi_Name"] == '"UWB_Navigator"') {return true;}else{return false;}
   }
 
   void _listenStream(value) async{
     if (value == 1.0) {_streamSubscription.cancel();
-      if(_DEV_ADD_MODE) {await deviceDescriptor("");Navigator.of(_context).pop();onData("WIFI_DEVICE_ADDED");} else if(_GO_3D){onData("WIFI_DEVICE_RECONNECTED_GO3D");} else {onData("WIFI_DEVICE_RECONNECTED");}
+      NOTCONNECTED = false;
+      if(_DEV_ADD_MODE) {int id = await deviceDescriptor("");onData("WIFI_DEVICE_ADDED",id.toString());} else {onData("WIFI_DEVICE_RECONNECTED_GO3D",_DEVID);}
+      Navigator.pop(_context);
     }
   }
 
-  //BLE methods
-  Future<void> connectBLE(String ssid, String password) async {
-    try {
-      final Map<String, dynamic> arguments = {'arg1': ssid, 'arg2': password};
-      bleInstance.scanDevice("B0:B2:1C:50:E7:A2");
-    } on PlatformException catch (e) {}
+  Future<void> permissionAlertBuilder(BuildContext context, String msg) {
+    return showDialog<void>(useSafeArea: true, context: context,
+      builder: (BuildContext context) {
+        return StatefulBuilder(builder: (context, setState) {
+          return AlertDialog(titlePadding: const EdgeInsets.all(5), contentPadding: const EdgeInsets.only(top: 5, bottom: 5), backgroundColor: const Color.fromRGBO(250, 250, 250, 1.0),
+            //Title
+            title: Container(width: 400, padding: const EdgeInsets.all(5), decoration: BoxDecoration(color: Colors.teal, border: Border.all(color: Colors.teal,width: 2), borderRadius: BorderRadius.circular(5)), child: const Center(child: Text("Oops...!", style: TextStyle(color: Colors.white),)),),
+            content: Container(width: 400, height: 200, padding: const EdgeInsets.all(16), child: const Center(child: Text("Seems like your mobile device is not capable of direct connection to wifi access points due to security reasons. Please connect the app manually to Wi-Fi ssid \"UWB_Navigator\" with password \"12345678\" to continue. Sorry for the inconvenience."),),),
+            actions: <Widget>[
+              TextButton(style: TextButton.styleFrom(textStyle: Theme.of(context).textTheme.labelLarge,), child: const Text('Ok'), onPressed: () {Navigator.of(context).pop();},),
+            ],
+          );
+        });
+      },
+    );
   }
 
-  Future<void> _onBLEData(String status) async {
-    print(status);
-    switch(status){
-      case "BLE_DEVICE_FOUND" :
-        bleInstance.ConnectDevice();
+  //BLE methods
+  Future<void> searchBLE(String ssid, String password) async {
+    BluetoothDevice constDEV = BluetoothDevice(remoteId: DeviceIdentifier("B0:B2:1C:50:E7:A2"), localName: "UWB_Navigator", type: BluetoothDeviceType.le);
+    BLE(_onBLEConnected,_onBLEError,"1").checkBLE(constDEV);
+  }
+
+  void _onBLEConnected(String status, BluetoothDevice device, String devid) async{
+    switch(status) {
+      case "BLEDEVICECONNECTED":
+        if(_DEV_ADD_MODE) {int id = await deviceDescriptor("");onData("BLE_DEVICE_ADDED",id.toString());} else {onData("BLE_DEVICE_RECONNECTED_GO3D",_DEVID);}
+        Navigator.pop(_context);
         break;
-      case "BLE_DEVICE_CONNECTED" :
-        if(_DEV_ADD_MODE) {await deviceDescriptor("");Navigator.of(_context).pop();onData("BLE_DEVICE_ADDED");}else {onData("BLE_DEVICE_CONNECTED");}
+      case "BLEDEVICENOTCONNECTED":
+        Navigator.pop(_context);
+        break;
+    }
+  }
+
+  void _onBLEError(String status, String devid) async{
+    switch(status) {
+      case "BLESCANRESULTTIMEOUT":
+        print("BLE device NOT FOUND on device card attempting to connect................................");
+        Navigator.pop(_context);
         break;
     }
   }
@@ -300,9 +362,10 @@ class RegisterNewDevice {
     }
   }
 
-  Future deviceDescriptor(String otherdata) async {
-    Device dev = Device(id: 1, name: "UWB_Navigator_Tag", status: "Connected", type: "Tag", x: 0.0, y: 0.0, z: 0.0,);
-    await DBProviderLocal().newDevice(dev);
+  Future<int> deviceDescriptor(String otherdata) async {
+    Device dev = Device(id: 1, name: "UWB_Navigator_Tag", anchors: "{}");
+    int id = await DBProviderLocal().newDevice(dev);
+    return id;
   }
 
   Future<void> _startWifiScan() async {

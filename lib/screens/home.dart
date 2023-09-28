@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'package:expandable/expandable.dart';
@@ -8,13 +7,15 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:uwb_navigator/db/db_provider_local.dart';
 import 'package:uwb_navigator/screens/device_card.dart';
+import 'package:uwb_navigator/screens/user_guide.dart';
 import 'package:uwb_navigator/shared/variables.dart';
-import 'package:uwb_navigator/utils/ble.dart';
 import 'package:uwb_navigator/utils/register_new_device.dart';
-import 'package:uwb_navigator/utils/register_new_device_ble.dart';
 import '../models/device.dart';
 import 'package:web_socket_channel/io.dart';
-import 'package:uwb_navigator/shared/variables.dart';
+import 'package:convex_bottom_bar/convex_bottom_bar.dart';
+import 'package:uwb_navigator/utils/network_status_requester.dart';
+import '../utils/ble.dart';
+
 
 class Home extends StatefulWidget {
   const Home({super.key});
@@ -39,18 +40,17 @@ class _HomeState extends State<Home> {
 
   void initState() {
     super.initState();
-    updateDevices();
+    updateDevices(true);
   }
 
-  void updateDevices(){
+  void updateDevices(bool initial){
     DBProviderLocal().getAllDevices().then((devices) {
-      setState(() {_devices = devices.cast<Device>();});
+      setState(() {_devices = devices.cast<Device>();if(_devices == null){}else{deviceController.value=true;userGuidController.value=false;}});
     });
   }
 
   @override
   void dispose() {
-    disconnectWebSocket();
     super.dispose();
   }
 
@@ -62,120 +62,118 @@ class _HomeState extends State<Home> {
     deviceController.addListener((){
       if(deviceController.value)userGuidController.value=false;
     });
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        flexibleSpace: Container(decoration: const BoxDecoration(gradient: LinearGradient(begin: Alignment.bottomCenter, end: Alignment.topCenter, colors: <Color>[AppColor.AppBarPrimaryColor, AppColor.secondaryColor]))),
-        elevation: 0.0,
-        title: const Text('UWB_Navigator', style: TextStyle(color: Colors.white),),
-        actions: <Widget>[
-          TextButton.icon(icon: const Icon(Icons.qr_code, color: Colors.white,), label: const Text(''), onPressed: () {Navigator.pushNamed(context, '/QRScanner');},),
-          TextButton.icon(icon: const Icon(Icons.menu, color: Colors.white,), label: const Text(''), onPressed: () {Navigator.pushNamed(context, '/3dspiral');},),
-          TextButton.icon(icon: const Icon(Icons.network_check, color: Colors.white,), label: const Text(''), onPressed: () {Navigator.pushNamed(context, '/test');},),
-        ],
-      ),
-      body: Container(
-        child: _devices == null
-            ? const Center(child: CircularProgressIndicator())
-            : Padding(padding: EdgeInsets.all(8),
-          child: SingleChildScrollView(
-            child: Column(
-              children: [
-                const SizedBox(height: 10,),
-                ExpandablePanel(theme: const ExpandableThemeData(headerAlignment: ExpandablePanelHeaderAlignment.center, tapBodyToExpand: true, tapBodyToCollapse: true, hasIcon: false, ),
-                  controller: userGuidController,
-                  header: Container(decoration: BoxDecoration(border: Border.all(color: Colors.teal, width: 5), borderRadius: BorderRadius.only(topLeft: Radius.circular(10) , topRight: Radius.circular(10) ),),
-                    child: Stack(children: <Widget>[
-                      Positioned.fill(child: Container(decoration: const BoxDecoration(gradient: LinearGradient(colors: <Color>[Colors.teal, Colors.teal, Colors.teal],),),),),
-                      Row(
-                        children: [
-                          ExpandableIcon(theme: const ExpandableThemeData(expandIcon: Icons.arrow_right, collapseIcon: Icons.arrow_drop_down, iconColor: Colors.white, iconSize: 28.0, iconRotationAngle: pi / 2, iconPadding: EdgeInsets.only(right: 5), hasIcon: false,)),
-                          const SizedBox(width: 10,), const Icon(Icons.list_alt,color: Colors.white,size: 28,), const SizedBox(width: 10,), const Text("UWB Navigator User Guid",style: TextStyle(color: Colors.white),),
-                        ],
-                      ),
-                    ]),
-                  ),
-                  collapsed: Container(height: 20, decoration: BoxDecoration(border: Border.all(color: Colors.teal.shade200,width: 3), borderRadius: BorderRadius.only(bottomLeft: Radius.circular(10), bottomRight: Radius.circular(10) ),),),
-                  expanded: Container(
-                    decoration: BoxDecoration(border: Border.all(color: Colors.teal.shade200,width: 3), borderRadius: BorderRadius.only(bottomLeft: Radius.circular(10), bottomRight: Radius.circular(10) ),),
-                    child: Padding(padding: const EdgeInsets.all(16.0),
-                      child: ExpansionPanelList(
-                        expansionCallback: (int index, bool isExpanded) {setState(() {if(index == 0) {isItem1Open = !isExpanded;isItem2Open = false;}else {isItem2Open = !isExpanded;isItem1Open = false;}});},
-                        children: [
-                          ExpansionPanel(
-                            headerBuilder: (BuildContext context, bool isExpanded) {
-                              return ListTile(tileColor: Colors.teal[400], selected: isItem1Open, selectedTileColor: Colors.teal[100], textColor: Colors.white, leading: CircleAvatar(child: Text('?')), title: Text('How to use UWB_Navigator ?'),);
-                            },
-                            body: const ListTile(title: Text('Item 1 child'), subtitle: Text('Details goes here'),),
-                            isExpanded: isItem1Open,
-                          ),
-                          ExpansionPanel(
-                            headerBuilder: (BuildContext context, bool isExpanded) {
-                              return ListTile(tileColor: Colors.teal[400], selected: isItem2Open, selectedTileColor: Colors.teal[100], textColor: Colors.white, leading: const CircleAvatar(child: Text('#')), title: const Text('UWB Tags'),);
-                            },
-                            body: const ListTile(title: Text('Item 2 child'), subtitle: Text('Details goes here'),),
-                            isExpanded: isItem2Open,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10,),
-                ExpandablePanel(theme: const ExpandableThemeData(headerAlignment: ExpandablePanelHeaderAlignment.center, tapBodyToExpand: true, tapBodyToCollapse: true, hasIcon: false,),
-                  controller: deviceController,
-                  header: Container(
-                    decoration: BoxDecoration(border: Border.all(color: Colors.teal, width: 5), borderRadius: const BorderRadius.only(topLeft: Radius.circular(10) , topRight: Radius.circular(10) ),),
-                    child: Column(
-                      children: [
-                        Stack(children: <Widget>[
-                          Positioned.fill(child: Container(decoration: const BoxDecoration(gradient: LinearGradient(colors: <Color>[Colors.teal, Colors.teal, Colors.teal,],),),),),
+    return WillPopScope(
+      onWillPop: () async => false,
+      child: Scaffold(
+        backgroundColor: AppColor.bgColor,
+        appBar: AppBar(
+          flexibleSpace: Container(decoration: const BoxDecoration(gradient: LinearGradient(begin: Alignment.bottomCenter, end: Alignment.topCenter, colors: <Color>[AppColor.AppBarPrimaryColor, AppColor.secondaryColor]))),
+          elevation: 0.0,
+          title: Text('UWB_Navigator', style: TextStyle(color: Colors.white),),
+        ),
+        body: Container(
+          child: _devices == null
+              ? const Center(child: CircularProgressIndicator())
+              : Padding(padding: EdgeInsets.all(8),
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  const SizedBox(height: 20,),
+                  ExpandablePanel(theme: const ExpandableThemeData(headerAlignment: ExpandablePanelHeaderAlignment.center, tapBodyToExpand: true, tapBodyToCollapse: true, hasIcon: false, ),
+                    controller: userGuidController,
+                    header: ClipRRect(borderRadius: const BorderRadius.only(topRight: Radius.circular(10),topLeft: Radius.circular(10)),
+                      child: Container(padding: EdgeInsets.all(8), color: AppColor.colorOne,
+                        child: Stack(children: <Widget>[
+                          Positioned.fill(child: Container(decoration: const BoxDecoration(gradient: LinearGradient(colors: <Color>[AppColor.colorOne, AppColor.colorOne, AppColor.colorOne],),),),),
                           Row(
                             children: [
-                              ExpandableIcon(theme: const ExpandableThemeData(expandIcon: Icons.arrow_right, collapseIcon: Icons.arrow_drop_down, iconColor: Colors.white, iconSize: 28.0, iconRotationAngle: pi / 2, iconPadding: EdgeInsets.only(right: 5), hasIcon: false,),),
-                              const SizedBox(width: 10,), const Icon(Icons.developer_mode,color: Colors.white,size: 28,), const SizedBox(width: 10,), const Text("Devices",style: TextStyle(color: Colors.white),),
+                              ExpandableIcon(theme: const ExpandableThemeData(expandIcon: Icons.arrow_right, collapseIcon: Icons.arrow_drop_down, iconColor: Colors.white, iconSize: 28.0, iconRotationAngle: pi / 2, iconPadding: EdgeInsets.only(right: 5), hasIcon: false,)),
+                              const SizedBox(width: 10,), const Icon(Icons.list_alt,color: Colors.white,size: 28,), const SizedBox(width: 10,), const Text("UWB Navigator User Guide",style: TextStyle(color: Colors.white),),
                             ],
                           ),
                         ]),
-                      ],
+                      ),
                     ),
-                  ),
-                  collapsed: Container(height: 20, decoration: BoxDecoration(border: Border.all(color: Colors.teal.shade200,width: 3), borderRadius: const BorderRadius.only(bottomLeft: Radius.circular(10), bottomRight: Radius.circular(10) ),),),
-                  expanded: Container(height: 330,
-                    decoration: BoxDecoration(border: Border.all(color: Colors.teal.shade200,width: 3), borderRadius: BorderRadius.only(bottomLeft: Radius.circular(10), bottomRight: Radius.circular(10) ),),
-                    child: _devices!.length == 0
-                        ? const Padding(padding: EdgeInsets.all(16.0), child: const Center(child: Text("You have no devices currently. Please click (+) button to add new device.")),)
-                        : Padding(padding: const EdgeInsets.all(8),
-                      child: ListView.builder(itemCount: _devices!.length,
-                        itemBuilder: (BuildContext context, int index) {
-                          Device item = _devices![index];
-                          return Dismissible(key: UniqueKey(),
-                            child: Padding(padding: const EdgeInsets.only(top: 8),
-                              child: DeviceCard(id: item.id.toString(), name: item.name!, status: item.status!, type: "tag", x: double.parse(station1Distance), y: double.parse(station2Distance), z: double.parse(station3Distance), onAreaClick: _onDeviceClicked,),
-                            ),
-                            onDismissed: (direction) async{await disconnectWebSocket();await DBProviderLocal().deleteDevice(item.id!);},
-                          );
-                        },
+                    collapsed: Container(height: 20, decoration: BoxDecoration(border: Border.all(color: AppColor.colorOne,width: 3), borderRadius: BorderRadius.only(bottomLeft: Radius.circular(10), bottomRight: Radius.circular(10) ),),),
+                    expanded: Container(
+                      decoration: BoxDecoration(border: Border.all(color: AppColor.colorOne,width: 3), borderRadius: BorderRadius.only(bottomLeft: Radius.circular(10), bottomRight: Radius.circular(10) ),),
+                      child: Padding(padding: const EdgeInsets.all(16.0),
+                        child: UserGuid(),
                       ),
                     ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 20,),
+                  ExpandablePanel(theme: const ExpandableThemeData(headerAlignment: ExpandablePanelHeaderAlignment.center, tapBodyToExpand: true, tapBodyToCollapse: true, hasIcon: false,),
+                    controller: deviceController,
+                    header: ClipRRect(borderRadius: const BorderRadius.only(topRight: Radius.circular(10),topLeft: Radius.circular(10)),
+                      child: Container(padding: EdgeInsets.all(8), color: AppColor.colorTwo,
+                        child: Column(
+                          children: [
+                            Stack(children: <Widget>[
+                              Positioned.fill(child: Container(decoration: const BoxDecoration(gradient: LinearGradient(colors: <Color>[AppColor.colorTwo, AppColor.colorTwo, AppColor.colorTwo,],),),),),
+                              Row(
+                                children: [
+                                  ExpandableIcon(theme: const ExpandableThemeData(expandIcon: Icons.arrow_right, collapseIcon: Icons.arrow_drop_down, iconColor: Colors.white, iconSize: 28.0, iconRotationAngle: pi / 2, iconPadding: EdgeInsets.only(right: 5), hasIcon: false,),),
+                                  const SizedBox(width: 10,), const Icon(Icons.developer_mode,color: Colors.white,size: 28,), const SizedBox(width: 10,), const Text("Devices",style: TextStyle(color: Colors.white),),
+                                ],
+                              ),
+                            ]),
+                          ],
+                        ),
+                      ),
+                    ),
+                    collapsed: Container(height: 20, decoration: BoxDecoration(border: Border.all(color: AppColor.colorTwo,width: 3), borderRadius: const BorderRadius.only(bottomLeft: Radius.circular(10), bottomRight: Radius.circular(10) ),),),
+                    expanded: Container(height: 330,
+                      decoration: BoxDecoration(border: Border.all(color: AppColor.colorTwo,width: 3), borderRadius: BorderRadius.only(bottomLeft: Radius.circular(10), bottomRight: Radius.circular(10) ),),
+                      child: _devices!.length == 0
+                          ? const Padding(padding: EdgeInsets.all(16.0), child: const Center(child: Text("You have no devices currently. Please click (+) button to add new device.")),)
+                          : Padding(padding: const EdgeInsets.all(8),
+                        child: ListView.builder(itemCount: _devices!.length,
+                          itemBuilder: (BuildContext context, int index) {
+                            Device item = _devices![index];
+                            return Dismissible(key: UniqueKey(),
+                              child: Padding(padding: const EdgeInsets.only(top: 8),
+                                child: DeviceCard(id: item.id.toString(), name: item.name!, anchors: item.anchors!, onButtonClick:_onDeviceButtonClicked,),
+                              ),
+                              onDismissed: (direction) async{await DBProviderLocal().deleteDevice(item.id!);updateDevices(false);},
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
+        bottomNavigationBar: ConvexAppBar(
+          backgroundColor: AppColor.primaryColor,
+          initialActiveIndex: 1,
+          disableDefaultTabController: true,
+          height: 55,
+          style: TabStyle.fixedCircle,
+          items: [
+              TabItem(icon: Icons.threed_rotation, title: 'Demo'),
+              TabItem(icon: Icons.add, title: 'Add'),
+              TabItem(icon: Icons.people, title: 'Profile'),
+            ],
+        onTap: (int i) async{
+            switch(i) {
+              case 1 :
+                Map<Permission, PermissionStatus> statuses = await [Permission.location, Permission.locationWhenInUse, Permission.camera, Permission.bluetoothConnect,].request();
+                if(statuses[Permission.camera] == PermissionStatus.granted && statuses[Permission.location] == PermissionStatus.granted && statuses[Permission.locationWhenInUse] == PermissionStatus.granted && statuses[Permission.bluetoothConnect] == PermissionStatus.granted){
+                  if(await CheckBluetooth()) {await RegisterNewDevice(context,_onDeviceConnected).dialogBuilder(Constants.DEVICE_CONNECT_MODE);}
+                }else{permissionAlertBuilder(context);}
+                break;
+              case 0 :
+                Navigator.pushReplacementNamed(context, '/3dspiral');
+                break;
+              case 2 :
+                break;
+            }
+        }
       ),
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: AppColor.AppBarPrimaryColor,
-        onPressed: () async{
-          Map<Permission, PermissionStatus> statuses = await [Permission.location, Permission.locationWhenInUse, Permission.camera, Permission.bluetoothConnect,].request();
-          if(statuses[Permission.camera] == PermissionStatus.granted && statuses[Permission.location] == PermissionStatus.granted && statuses[Permission.locationWhenInUse] == PermissionStatus.granted && statuses[Permission.bluetoothConnect] == PermissionStatus.granted){
-            if(await CheckBluetooth()) {await RegisterNewDevice(context,_onDeviceConnected).dialogBuilder(Constants.DEVICE_CONNECT_MODE);}
-          }else{
-            permissionAlertBuilder(context);
-          }
-        },
-        child: const Icon(Icons.add, color: Colors.white,),
       ),
     );
   }
@@ -198,7 +196,6 @@ class _HomeState extends State<Home> {
     );
   }
 
-  // check adapter availability
   Future<bool> CheckBluetooth() async{
     if (await FlutterBluePlus.isAvailable == false) {
       print("Bluetooth not supported by this device");
@@ -221,62 +218,87 @@ class _HomeState extends State<Home> {
     }
   }
 
-  void _onDeviceConnected(String status){
+  void _onDeviceConnected(String status, String devid){
+    print("..........................On device connected: " + status + " devid: " + devid);
     switch(status) {
       case "WIFI_DEVICE_ADDED":
-        updateDevices();
-        if (channel == null) {connectToWebSocket();}
-        break;
-      case "WIFI_DEVICE_RECONNECTED":
-        if (channel == null) {connectToWebSocket();}
+        updateDevices(false);
         break;
       case "WIFI_DEVICE_RECONNECTED_GO3D":
-        if (channel == null) {disconnectWebSocket();Navigator.pushNamed(context, '/3dmap');}
+        routeTo3D(devid,Constants.WIFI_MODE,0);
+        break;
+      case "BLE_DEVICE_ADDED":
+        updateDevices(false);
+        break;
+      case "BLE_DEVICE_RECONNECTED_GO3D":
+        routeTo3D(devid,Constants.BLE_MODE,0);
         break;
     }
   }
 
-  void _onDeviceClicked(String status, String devid) async{
+  void _onDeviceButtonClicked(String status, String devid) async{
     switch(status) {
-      case "WIFI_DEVICE_CONNECTED":
-        connectToWebSocket();
+      case "GO3D_CLICKED":
+        kShowSnackBar(context, "Checking for device availability(Wi-Fi)...");
+        var network_info = await NetworkInformation().getNetworkInfo();
+        if(network_info["Wifi_Name"] == '"UWB_Navigator"') {
+          routeTo3D(devid,Constants.WIFI_MODE, 0);
+        }else{
+          kShowSnackBar(context, "Checking for device availability(BLE)...");
+          BluetoothDevice constDEV = BluetoothDevice(remoteId: DeviceIdentifier("B0:B2:1C:50:E7:A2"), localName: "UWB_Navigator", type: BluetoothDeviceType.le);
+          BLE(_onBLEConnected,_onBLEError,devid).checkBLE(constDEV);
+        }
         break;
-      case "WIFI_DEVICE_NOT_CONNECTED":
-        await RegisterNewDevice(context,_onDeviceConnected).reconnectDialogBuilder(Constants.DEVICE_RECONNECT_MODE,Constants.GO_HERE);
-        break;
-      case "WIFI_DEVICE_CONNECTED_GO3D":
-        disconnectWebSocket();Navigator.pushNamed(context, '/3dmap');
-        break;
-      case "WIFI_DEVICE_NOT_CONNECTED_GO3D":
-        await RegisterNewDevice(context,_onDeviceConnected).reconnectDialogBuilder(Constants.DEVICE_RECONNECT_MODE,Constants.GO_3D);
-        break;
-      case "BLE_DEVICE_CONNECTED":
-        Navigator.pushNamed(context, '/3dmap');
+      case "ONLINE_CLICKED":
+        routeTo3D(devid,Constants.WIFI_MODE, 1);
         break;
     }
   }
 
-  Future disconnectWebSocket() async{await channel?.sink.close();}
+  void _onBLEConnected(String status, BluetoothDevice device, String devid) async{
+    switch(status) {
+      case "BLESCANRESULT":
+        BLE(_onBLEConnected,_onBLEError,devid).connectBLE(device);
+        break;
+      case "BLEDEVICECONNECTED":
+        routeTo3D(devid,Constants.BLE_MODE,0);
+        break;
+      case "BLEDEVICENOTCONNECTED":
+        await RegisterNewDevice(context,_onDeviceConnected).reconnectDialogBuilder(Constants.DEVICE_RECONNECT_MODE,devid);
+        break;
+    }
+  }
 
-  void connectToWebSocket() {
-    channel = IOWebSocketChannel.connect('ws://192.168.4.1/ws');
-    channel!.stream.listen((message) {
-      print(message.toString());
-      Map<String, dynamic> data = json.decode(message);
-      setState(() {
-        try {station1Distance = data["state1"];} catch (e) {print("No data");}
-        try {station2Distance = data["state2"];} catch (e) {print("No data");}
-        try {station3Distance = data["state3"];} catch (e) {print("No data");}
-      });
+  void _onBLEError(String status, String devid) async{
+    switch(status) {
+      case "BLESCANRESULTTIMEOUT":
+        print("BLE device NOT FOUND on device card attempting to connect................................");
+        await RegisterNewDevice(context,_onDeviceConnected).reconnectDialogBuilder(Constants.DEVICE_RECONNECT_MODE,devid);
+        break;
+    }
+  }
+
+  void routeTo3D(String devid, bool wifiy, int mode){
+    DBProviderLocal().getDevice(int.parse(devid)).then((device) {
+      print(device.anchors);
+      Map<String,int> args = {"devid":device.id!, "mode": mode};
+      if(device.anchors.toString() == "{}"){
+        print("Anchors are empty. Set them first to complete the config");
+        Navigator.pushReplacementNamed(context,"/deviceConfig",arguments: args,);
+      }else{
+        print("Anchors Already Set");
+        Navigator.pushReplacementNamed(context,'/3dmap',arguments: args,);
+      }
     });
   }
 
-
-
-  void _onBLEData(String status , ScanResult result) async {
-    print(status);
-    if(status== "BLE_DEVICE_FOUND"){
-    }
+  void kShowSnackBar(BuildContext context, String message) {
+    ScaffoldMessenger.of(context)..hideCurrentSnackBar()..showSnackBar(
+        SnackBar(
+          backgroundColor: AppColor.white,
+        content: Container(padding:EdgeInsets.all(32), child: Text(message,style: TextStyle(color: AppColor.primaryColor),)),
+        duration: const Duration(seconds: 2),
+        )
+    );
   }
-
 }

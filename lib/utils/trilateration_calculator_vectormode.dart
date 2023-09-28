@@ -60,7 +60,7 @@ class TrilaterationCalculatorVectormode{
   }
 
 
-  List trilateration(var P1, var P2, var P3, var r1, var r2, var r3) {
+  List trilateration(var P1, var P2, var P3, var r1, var r2, var r3, var x_max, var y_max, z_max) {
     final List lis = [];
 
     final p1 = List<double>.filled(3, 0);
@@ -92,15 +92,27 @@ class TrilaterationCalculatorVectormode{
     var K2 = vectorAddFunc(p1, vectorAddFunc(vectorMulbyElementFunc(Xn, X),
         vectorSubtractFunc(
             vectorMulbyElementFunc(Yn, Y), vectorMulbyElementFunc(Zn, Z2))));
-    lis.add(K1);
-    lis.add(K2);
+    //lis.add(K1);
+    //lis.add(K2);
+    var K = K1;
 
-
+    if (-5 <= K1[0] && K1[0]< x_max+5 && -5 <= K1[1] && K1[1] < y_max+5 && -5 <= K1[2] && K1[2] < z_max+5) {
+      if (-5 <= K2[0] && K2[0] < x_max + 5 && -5 <= K2[1] && K2[1]< y_max + 5 && -5 <= K2[2] && K2[2] < z_max + 5) {
+        K = [(K1[0] + K2[0]) / 2, (K1[1] + K2[1]) / 2, (K1[2] + K2[2]) / 2];
+      }
+    }
+    else if (-5 <= K2[0] && K2[0] < x_max+5 && -5 <= K2[1] && K2[1] < y_max+10 && -5 <= K2[2] && K2[2] < z_max+5) {
+      K = K2;
+    }
+    else {
+      K = [];
+    }
+    lis.add(K);
     return lis;
   }
 
   //With those cordinates and distances P1=(2,2,0), P2=(3,3,0), P3=(1,4,0) r1=1, r2=1, r3=1.4142, it shoudl return P=(2,3,0).
-  List GetCoordinates(var Vec1, var Vec2, var Vec3, var r1, var r2, var r3) {
+  List GetCoordinates(var Vec1, var Vec2, var Vec3, var r1, var r2, var r3, var maxX, var maxY, var maxZ) {
     //list
     // var Vec1 = [2, 2, 0];
     // var Vec2 = [3, 3, 0];
@@ -109,7 +121,8 @@ class TrilaterationCalculatorVectormode{
     // var r2 = 1;
     // var r3 = 1.4142;
     //call
-    var coordinate = trilateration(Vec1, Vec2, Vec3, r1, r2, r3);
+    List coordinate = trilateration(Vec1, Vec2, Vec3, r1-30, r2-30, r3-30, maxX, maxY, maxZ);
+    print("Print from calculator 888888888888888888888888888888888888888888888888");
     print(coordinate);
     return coordinate;
   }
